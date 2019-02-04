@@ -391,6 +391,7 @@ void nvgCancelFrame(NVGcontext* ctx)
 void nvgEndFrame(NVGcontext* ctx)
 {
 	ctx->params.renderFlush(ctx->params.userPtr);
+/* ONFIX
 	if (ctx->fontImageIdx != 0) {
 		int fontImage = ctx->fontImages[ctx->fontImageIdx];
 		int i, j, iw, ih;
@@ -416,6 +417,7 @@ void nvgEndFrame(NVGcontext* ctx)
 		for (i = j; i < NVG_MAX_FONTIMAGES; i++)
 			ctx->fontImages[i] = 0;
 	}
+*/
 }
 
 NVGcolor nvgRGB(unsigned char r, unsigned char g, unsigned char b)
