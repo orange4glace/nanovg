@@ -1,11 +1,24 @@
+#define NAPI_EXPERIMENTAL
 #include "nanovg_webgl2_api.h"
 #include "nanovg.h"
 #define NANOVG_WEBGL2_IMPLEMENTATION
 #include "nanovg_webgl2.h"
 
+#include "napi_decoder.h"
+#include "napi_encoder.h"
+
+#include <assert.h>
+
 static NVGcontext* vg;
 
-napi_value __nvgBeginFrame(napi_env env, napi_callback_info cbinfo) {
+struct VideoFrameData {
+  uint8_t* data;
+  int width;
+  int height;
+  int64_t pts;
+};
+
+napi_value __nvg_beginFrame(napi_env env, napi_callback_info cbinfo) {
   setNAPIenv(env);
   size_t argc = 3;
   napi_value nv[3];
@@ -142,6 +155,34 @@ napi_value __nvgEndFrame(napi_env env, napi_callback_info cbinfo) {
   return 0;
 }
 
+napi_value __nvg_createImageRGBA(napi_env env, napi_callback_info cbinfo) {
+  setNAPIenv(env);
+  size_t argc = 4;
+  napi_value nv[4];
+  napi_value* nvp = nv;
+  napi_get_cb_info(env, cbinfo, &argc, nv, 0, 0);
+
+  int w, h, flag;
+  uint64_t uaddr;
+  bool lossless;
+  napi_get_value_int32(env, *nvp++, &w);
+  napi_get_value_int32(env, *nvp++, &h);
+  napi_get_value_int32(env, *nvp++, &flag);
+  napi_get_value_bigint_uint64(env, *nvp++, &uaddr, &lossless);
+  assert(lossless);
+
+  uint8_t* ptr = reinterpret_cast<uint8_t*>(uaddr);
+  VideoFrameData* data = reinterpret_cast<VideoFrameData*>(ptr);
+
+  int image = nvgCreateImageRGBA(vg, data->width, data->height, flag, (unsigned char*)data->data);
+  return napi_encoder<int32_t>::encode(env, image);
+}
+
+#define DefineAPI(name) \
+    napi_value nvg_##name; \
+    napi_create_function(env, "\""#name"\"", NAPI_AUTO_LENGTH, __nvg_##name, NULL, &nvg_##name); \
+    napi_set_named_property(env, handle, "\""#name"\"", nvg_##name);
+
 napi_value __nanovg_webgl2_init(napi_env env, napi_callback_info cbinfo) {
   setNAPIenv(env);
 
@@ -159,9 +200,7 @@ napi_value __nanovg_webgl2_init(napi_env env, napi_callback_info cbinfo) {
   napi_value handle;
   napi_create_object(env, &handle);
 
-  napi_value nvgBeginFrame_;
-  napi_create_function(env, "beginFrame", NAPI_AUTO_LENGTH, __nvgBeginFrame, NULL, &nvgBeginFrame_);
-  napi_set_named_property(env, handle, "beginFrame", nvgBeginFrame_);
+  DefineAPI(beginFrame);
 
   napi_value nvgSave_;
   napi_create_function(env, "save", NAPI_AUTO_LENGTH, __nvgSave, NULL, &nvgSave_);
@@ -210,6 +249,8 @@ napi_value __nanovg_webgl2_init(napi_env env, napi_callback_info cbinfo) {
   napi_value nvgEndFrame_;
   napi_create_function(env, "endFrame", NAPI_AUTO_LENGTH, __nvgEndFrame, NULL, &nvgEndFrame_);
   napi_set_named_property(env, handle, "endFrame", nvgEndFrame_);
+
+  DefineAPI(createImageRGBA);
 
   return handle;
 }

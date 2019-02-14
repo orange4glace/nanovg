@@ -68,8 +68,8 @@ enum NVGcreateFlags {
 NVGcontext* nvgCreateWebGL2(int flags);
 void nvgDeleteWebGL2(NVGcontext* ctx);
 
-int nvglCreateImageFromHandleWebGL2(NVGcontext* ctx, GLuint textureId, int w, int h, int flags);
-GLuint nvglImageHandleWebGL2(NVGcontext* ctx, int image);
+int nvglCreateImageFromHandleWebGL2(NVGcontext* ctx, GLTexture texture, int w, int h, int flags);
+GLTexture nvglImageHandleWebGL2(NVGcontext* ctx, int image);
 
 #endif
 
@@ -157,6 +157,7 @@ struct GLNVGshader {
 	GLShader frag;
 	GLShader vert;
 	GLUniformLocation loc[GLNVG_MAX_LOCS];
+  GLuint frag_loc_uniform;
 };
 typedef struct GLNVGshader GLNVGshader;
 
@@ -280,7 +281,7 @@ struct GLNVGcontext {
 
 	// cached state
 	#if NANOVG_GL_USE_STATE_FILTER
-	GLuint boundTexture;
+	GLTexture boundTexture;
 	GLuint stencilMask;
 	GLenum stencilFunc;
 	GLint stencilFuncRef;
@@ -416,7 +417,7 @@ static int glnvg__deleteTexture(GLNVGcontext* gl, int id)
 	return 0;
 }
 
-static void glnvg__dumpShaderError(GLuint shader, const char* name, const char* type)
+static void glnvg__dumpShaderError(GLShader shader, const char* name, const char* type)
 {
 	GLchar str[512+1];
 	GLsizei len = 0;
@@ -426,7 +427,7 @@ static void glnvg__dumpShaderError(GLuint shader, const char* name, const char* 
 	printf("Shader %s/%s error:\n%s\n", name, type, str);
 }
 
-static void glnvg__dumpProgramError(GLuint prog, const char* name)
+static void glnvg__dumpProgramError(GLProgram prog, const char* name)
 {
 	GLchar str[512+1];
 	GLsizei len = 0;
@@ -518,7 +519,7 @@ static void glnvg__getUniforms(GLNVGshader* shader)
 	shader->loc[GLNVG_LOC_TEX] = glGetUniformLocation(shader->prog, "tex");
 
 #if NANOVG_GL_USE_UNIFORMBUFFER
-	shader->loc[GLNVG_LOC_FRAG] = glGetUniformBlockIndex(shader->prog, "frag");
+	shader->frag_loc_uniform = glGetUniformBlockIndex(shader->prog, "frag");
 #else
 	shader->loc[GLNVG_LOC_FRAG] = glGetUniformLocation(shader->prog, "frag");
 #endif
@@ -723,7 +724,7 @@ static int glnvg__renderCreate(void* uptr)
 
 #if NANOVG_GL_USE_UNIFORMBUFFER
 	// Create UBOs
-	glUniformBlockBinding(gl->shader.prog, gl->shader.loc[GLNVG_LOC_FRAG], GLNVG_FRAG_BINDING);
+	glUniformBlockBinding(gl->shader.prog, gl->shader.frag_loc_uniform, GLNVG_FRAG_BINDING);
   gl->fragBuf = glCreateBuffer();
 	align = glGetIntegerv(GL_UNIFORM_BUFFER_OFFSET_ALIGNMENT);
 #endif
@@ -783,12 +784,12 @@ static int glnvg__renderCreateTexture(void* uptr, int type, int w, int h,
 #endif
 
 	if (type == NVG_TEXTURE_RGBA)
-		glTexImage2D(GL_TEXTURE_2D, 0, GL_RGBA, w, h, 0, GL_RGBA, GL_UNSIGNED_BYTE, data, 4);
+		glTexImage2D(GL_TEXTURE_2D, 0, GL_RGBA, w, h, 0, GL_RGBA, GL_UNSIGNED_BYTE, (GLvoid*)data, 4);
 	else
 #if defined(NANOVG_GLES2) || defined (NANOVG_GL2)
 		glTexImage2D(GL_TEXTURE_2D, 0, GL_LUMINANCE, w, h, 0, GL_LUMINANCE, GL_UNSIGNED_BYTE, data, 1);
 #elif defined(NANOVG_GLES3) || defined(NANOVG_WEBGL2)
-		glTexImage2D(GL_TEXTURE_2D, 0, GL_R8, w, h, 0, GL_RED, GL_UNSIGNED_BYTE, data, 1);
+		glTexImage2D(GL_TEXTURE_2D, 0, GL_R8, w, h, 0, GL_RED, GL_UNSIGNED_BYTE, (GLvoid*)data, 1);
 #else
 		glTexImage2D(GL_TEXTURE_2D, 0, GL_RED, w, h, 0, GL_RED, GL_UNSIGNED_BYTE, data, 1);
 #endif
@@ -876,12 +877,12 @@ static int glnvg__renderUpdateTexture(void* uptr, int image, int x, int y, int w
 #endif
 
 	if (tex->type == NVG_TEXTURE_RGBA)
-		glTexSubImage2D(GL_TEXTURE_2D, 0, x,y, w,h, GL_RGBA, GL_UNSIGNED_BYTE, data, 4);
+		glTexSubImage2D(GL_TEXTURE_2D, 0, x,y, w,h, GL_RGBA, GL_UNSIGNED_BYTE, (GLvoid*)data, 4);
 	else
 #if defined(NANOVG_GLES2) || defined(NANOVG_GL2)
-		glTexSubImage2D(GL_TEXTURE_2D, 0, x,y, w,h, GL_LUMINANCE, GL_UNSIGNED_BYTE, data, 1);
+		glTexSubImage2D(GL_TEXTURE_2D, 0, x,y, w,h, GL_LUMINANCE, GL_UNSIGNED_BYTE, (GLvoid*)data, 1);
 #else
-		glTexSubImage2D(GL_TEXTURE_2D, 0, x,y, w,h, GL_RED, GL_UNSIGNED_BYTE, data, 1);
+		glTexSubImage2D(GL_TEXTURE_2D, 0, x,y, w,h, GL_RED, GL_UNSIGNED_BYTE, (GLvoid*)data, 1);
 #endif
 
 	glPixelStorei(GL_UNPACK_ALIGNMENT, 4);
@@ -1223,7 +1224,7 @@ static void glnvg__renderFlush(void* uptr)
 		glActiveTexture(GL_TEXTURE0);
 		glBindTexture0(GL_TEXTURE_2D);
 		#if NANOVG_GL_USE_STATE_FILTER
-		gl->boundTexture = 0;
+		gl->boundTexture = NULL;
 		gl->stencilMask = 0xffffffff;
 		gl->stencilFunc = GL_ALWAYS;
 		gl->stencilFuncRef = 0;
@@ -1657,7 +1658,7 @@ int nvglCreateImageFromHandleGLES2(NVGcontext* ctx, GLuint textureId, int w, int
 #elif defined NANOVG_GLES3
 int nvglCreateImageFromHandleGLES3(NVGcontext* ctx, GLuint textureId, int w, int h, int imageFlags)
 #elif defined NANOVG_WEBGL2
-int nvglCreateImageFromHandleWebGL2(NVGcontext* ctx, GLuint textureId, int w, int h, int imageFlags)
+int nvglCreateImageFromHandleWebGL2(NVGcontext* ctx, GLTexture texture, int w, int h, int imageFlags)
 #endif
 {
 	GLNVGcontext* gl = (GLNVGcontext*)nvgInternalParams(ctx)->userPtr;
@@ -1666,7 +1667,7 @@ int nvglCreateImageFromHandleWebGL2(NVGcontext* ctx, GLuint textureId, int w, in
 	if (tex == NULL) return 0;
 
 	tex->type = NVG_TEXTURE_RGBA;
-	tex->tex = textureId;
+	tex->tex = texture;
 	tex->flags = imageFlags;
 	tex->width = w;
 	tex->height = h;
@@ -1683,7 +1684,7 @@ GLuint nvglImageHandleGLES2(NVGcontext* ctx, int image)
 #elif defined NANOVG_GLES3
 GLuint nvglImageHandleGLES3(NVGcontext* ctx, int image)
 #elif defined NANOVG_WEBGL2
-GLuint nvglImageHandleWebGL2(NVGcontext* ctx, int image)
+GLTexture nvglImageHandleWebGL2(NVGcontext* ctx, int image)
 #endif
 {
 	GLNVGcontext* gl = (GLNVGcontext*)nvgInternalParams(ctx)->userPtr;

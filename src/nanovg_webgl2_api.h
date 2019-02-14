@@ -2,6 +2,7 @@
 #define NANOVG_WEBGL2_API_H_
 
 #include <node_api.h>
+#include <cstring>
 
 #include "nanovg_webgl2_spec.h"
 
